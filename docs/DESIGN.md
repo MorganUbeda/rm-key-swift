@@ -29,7 +29,8 @@ Send text and editing keys from a Mac to a reMarkable Paper Pro over SSH.
 │  ┌──────────────────────┴─────────────────────────────┐    │
 │  │  Capture HUD Window (.canJoinAllSpaces, .floating)  │    │
 │  │  ────────────────────────────────────────────────   │    │
-│  │  NSTextField/TextView delegate → FramedProtocol      │    │
+│  │  NSTextField delegate + local shortcut monitor       │    │
+│  │  → FramedProtocol                                    │    │
 │  │  Frontmost while user types in the HUD               │    │
 │  └──────────────────────┬─────────────────────────────┘    │
 │                         │                                   │
@@ -70,7 +71,11 @@ Send text and editing keys from a Mac to a reMarkable Paper Pro over SSH.
               └────────────────────────────────┘
 ```
 
-The client sends semantic UTF-8 text and named control keys. On the tablet, an LD_PRELOAD helper loaded into xochitl receives those frames and injects synthetic Qt `QKeyEvent`s into xochitl's currently focused Qt object.
+The client sends semantic UTF-8 text, named control keys, and semantic editing
+commands. On the tablet, an LD_PRELOAD helper loaded into xochitl receives
+those frames and injects synthetic Qt key events into xochitl's current focus
+path. Printable text continues to use the focus object directly; editing
+commands use Qt's normal `qt_handleKeyEvent(focusWindow(), ...)` route.
 
 ---
 
@@ -124,7 +129,7 @@ Frame format:
 
 | Offset | Size | Field | Description |
 |--------|------|-------|-------------|
-| 0 | 1 byte | type | `0x01` text, `0x02` control key |
+| 0 | 1 byte | type | `0x01` text, `0x02` control key, `0x03` editing command, `0x04` hello, `0x05` hello acknowledgement |
 | 1–4 | 4 bytes | length | Payload length, little-endian unsigned integer |
 | 5.. | length bytes | payload | UTF-8 text or ASCII control key name |
 
@@ -162,6 +167,14 @@ Payload is one ASCII control key name:
 
 Control keys are sent as Qt key press/release events with empty text.
 
+#### `0x03` — editing command (feature extension)
+
+The payload is one exact ASCII command name such as `COPY`, `PASTE`, or
+`SHIFT_LEFT`. The injector maps the command to a Qt key/modifier pair and
+calls `qt_handleKeyEvent(focusWindow(), ...)` so Qt shortcut processing is
+preserved. The extension also defines `0x04` Hello and `0x05` Hello
+acknowledgement. See `FEATURE_DESIGN.md` for the complete command mapping.
+
 ---
 
 ## Swift Client
@@ -174,7 +187,7 @@ The app runs as a menu bar accessory (no Dock icon, `.accessory` activation poli
 |---|---|
 | **MenuBarExtra** | Status dot, Start/Stop Capture, Upload Daemon, Settings gear, Quit |
 | **Settings window** | IP address, root password, credential save, Upload Daemon button, transient status messages |
-| **Capture HUD** | Floating window on all Spaces with a focused text field for capture |
+| **Capture HUD** | Floating window on all Spaces with a focused text field and local shortcut monitor |
 
 ### Activation Policy
 
@@ -188,13 +201,18 @@ Key capture uses a focused AppKit `NSTextField` embedded in the SwiftUI Capture 
 User types in Capture HUD
   → NSTextField/text view receives input
   → printable text: textDidChange → FramedProtocol.encodeText
-  → editing/navigation commands: NSTextFieldDelegate.doCommandBy → FramedProtocol.encodeControl
-  → SSHActor.sendFrame()
+  → unmodified controls: NSTextFieldDelegate.doCommandBy → encodeControl
+  → editing shortcuts: local key-down monitor → encodeEditingCommand
+  → ordered outbound sender → SSHActor.sendFrame()
 ```
 
 This lets macOS input methods compose accented characters normally before the resulting Unicode text is sent to the tablet.
 
-Control keys are handled through AppKit command selectors such as `deleteBackward:`, `moveLeft:`, `insertNewline:`, and `insertTab:`.
+Unmodified controls are handled through AppKit command selectors such as
+`deleteBackward:`, `moveLeft:`, `insertNewline:`, and `insertTab:`. Editing
+shortcuts are intercepted by an app-local key-down monitor before AppKit key
+equivalents run. Navigation events may include `.function` or `.numericPad`
+flags; these are physical-key flags, not unsupported modifiers.
 
 **Focus behavior:** The Capture HUD must be focused/frontmost. Switching to another app naturally stops capture because the text field no longer receives input.
 

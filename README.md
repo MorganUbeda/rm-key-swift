@@ -10,7 +10,9 @@ Type into a **reMarkable Paper Pro** from your Mac.
 ## What it does
 
 - Captures text typed into a small floating macOS HUD.
-- Sends UTF-8 text and editing/navigation keys to the tablet over SSH.
+- Sends UTF-8 text and navigation keys to the tablet over SSH.
+- Select/copy/paste editing shortcuts are designed and hardware-validated; the
+  production editing-command protocol is still being integrated.
 - Injects synthetic Qt key events directly into the focused `xochitl` text object.
 - Supports accented/international characters because it sends Unicode text, not keyboard-layout-dependent keycodes.
 - Uses a temporary tablet-side injector; a tablet reboot clears it.
@@ -20,7 +22,8 @@ Mac rm-key app
   └─ SSH tunnel / libssh2
       └─ 127.0.0.1:31338 on the tablet
           └─ librmkey_qt_inject.so loaded into xochitl
-              └─ QKeyEvent sent to QGuiApplication::focusObject()
+              └─ text: QKeyEvent → focusObject()
+                 editing: qt_handleKeyEvent(focusWindow(), ...)
 ```
 
 ## Compatibility
@@ -129,7 +132,7 @@ The app appears as a keyboard icon in the macOS menu bar.
 7. Click **Start Capture**.
 8. Click into the small Capture window and type.
 
-Supported control keys:
+Supported navigation/control keys:
 
 ```text
 Backspace
@@ -207,7 +210,10 @@ cat /tmp/rmkey-qt-inject.log
 
 ### Text duplicates
 
-The injector should send synthetic Qt key events only to `QGuiApplication::focusObject()`, not also to the focus window. If text duplicates after a firmware update, please open an issue.
+Printable text is sent only to `QGuiApplication::focusObject()`; sending it to
+both the focus object and window duplicates insertion. Editing commands use the
+separate `qt_handleKeyEvent(focusWindow(), ...)` route. If text duplicates after
+a firmware update, please open an issue.
 
 ## Project structure
 
