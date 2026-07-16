@@ -88,9 +88,11 @@ chore(deps): update libssh2 integration
 
 ## Building & Running
 
+Everything should be built and run in the current directory. In particular, the nix-cache should be local when building the Qt injector.
+
 ```bash
 # Build the Qt injector (tablet side, cross-compiled for aarch64)
-nix-build build-injector.nix
+XDG_CACHE_HOME="$PWD/.nix-cache" nix-build build-injector.nix
 # output: result/librmkey_qt_inject.so
 
 # Copy injector into the app bundle resources
