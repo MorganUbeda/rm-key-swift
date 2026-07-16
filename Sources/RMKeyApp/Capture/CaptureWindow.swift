@@ -31,6 +31,7 @@ struct CaptureTextFieldRepresentable: NSViewRepresentable {
         field.font = NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
         field.placeholderString = "Type here…"
         field.delegate = context.coordinator
+        context.coordinator.installShortcutProbe(for: field)
         field.onText = { text in
             let frame = FramedProtocol.encodeText(text)
             Task {
@@ -54,10 +55,37 @@ struct CaptureTextFieldRepresentable: NSViewRepresentable {
     class Coordinator: NSObject, NSTextFieldDelegate {
         let appState: AppState
         var lastKey: Binding<String>
+        private var shortcutMonitor: Any?
 
         init(appState: AppState, lastKey: Binding<String>) {
             self.appState = appState
             self.lastKey = lastKey
+        }
+
+        deinit {
+            if let shortcutMonitor {
+                NSEvent.removeMonitor(shortcutMonitor)
+            }
+        }
+
+        /// Temporary client-side probe for the AppKit interception boundary.
+        /// It consumes only editing shortcuts while this field is active and
+        /// displays the command in the HUD instead of sending a frame.
+        func installShortcutProbe(for field: CaptureTextField) {
+            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+                [weak self, weak field] event in
+                guard let self, let field,
+                      let window = field.window,
+                      window.firstResponder === field
+                          || field.currentEditor() === window.firstResponder,
+                      let command = EditingCommand.command(for: event) else {
+                    return event
+                }
+
+                print("[rm-key] Capture shortcut probe: \(command.rawValue)")
+                self.lastKey.wrappedValue = command.rawValue
+                return nil
+            }
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
