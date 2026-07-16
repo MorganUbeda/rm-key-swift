@@ -58,16 +58,6 @@ targets: [
 ]
 ```
 
-## Code Formatting
-
-**All Swift code must be formatted with `swift-format`.**
-
-```bash
-swift-format --in-place --recursive Sources/
-```
-
-Run swift-format before committing.
-
 ## Git Commits
 
 **Never commit code unless explicitly instructed to do so.**
