@@ -31,16 +31,14 @@ struct CaptureTextFieldRepresentable: NSViewRepresentable {
         field.font = NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
         field.placeholderString = "Type here…"
         field.delegate = context.coordinator
+        context.coordinator.startConsumer()
         context.coordinator.installShortcutProbe(for: field)
-        field.onText = { text in
+        field.onText = { [weak coordinator = context.coordinator] text in
+            guard let coordinator else { return }
             let frame = FramedProtocol.encodeText(text)
-            Task {
-                do {
-                    try await appState.sshActor.sendFrame(frame)
-                    await MainActor.run { lastKey = text }
-                } catch {
-                    print("[rm-key] Send error: \(error)")
-                }
+            coordinator.streamContinuation?.yield(frame)
+            Task { @MainActor in
+                coordinator.lastKey.wrappedValue = text
             }
         }
         return field
@@ -56,6 +54,8 @@ struct CaptureTextFieldRepresentable: NSViewRepresentable {
         let appState: AppState
         var lastKey: Binding<String>
         private var shortcutMonitor: Any?
+        var streamContinuation: AsyncStream<Data>.Continuation?
+        var consumerTask: Task<Void, Never>?
 
         init(appState: AppState, lastKey: Binding<String>) {
             self.appState = appState
@@ -66,11 +66,27 @@ struct CaptureTextFieldRepresentable: NSViewRepresentable {
             if let shortcutMonitor {
                 NSEvent.removeMonitor(shortcutMonitor)
             }
+            consumerTask?.cancel()
+            streamContinuation?.finish()
         }
 
-        /// Temporary client-side probe for the AppKit interception boundary.
-        /// It consumes only editing shortcuts while this field is active and
-        /// displays the command in the HUD instead of sending a frame.
+        /// Sets up a consumer task that forwards framed protocol data
+        /// to the SSH injector channel.
+        func startConsumer() {
+            let (stream, continuation) = AsyncStream<Data>.makeStream()
+            self.streamContinuation = continuation
+            self.consumerTask = Task { [weak self] in
+                for await frame in stream {
+                    guard let self else { break }
+                    do {
+                        try await appState.sshActor.sendFrame(frame)
+                    } catch {
+                        print("[rm-key] Send error: \(error)")
+                    }
+                }
+            }
+        }
+
         func installShortcutProbe(for field: CaptureTextField) {
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
                 [weak self, weak field] event in
@@ -82,7 +98,11 @@ struct CaptureTextFieldRepresentable: NSViewRepresentable {
                     return event
                 }
 
-                print("[rm-key] Capture shortcut probe: \(command.rawValue)")
+                Task {
+                    guard await self.appState.editingCommandsAvailable else { return }
+                    let frame = FramedProtocol.encodeEditingCommand(command)
+                    self.streamContinuation?.yield(frame)
+                }
                 self.lastKey.wrappedValue = command.rawValue
                 return nil
             }
@@ -93,13 +113,9 @@ struct CaptureTextFieldRepresentable: NSViewRepresentable {
                 return false
             }
             let frame = FramedProtocol.encodeControl(controlKey)
-            Task {
-                do {
-                    try await appState.sshActor.sendFrame(frame)
-                    await MainActor.run { lastKey.wrappedValue = controlKey.rawValue }
-                } catch {
-                    print("[rm-key] Send error: \(error)")
-                }
+            streamContinuation?.yield(frame)
+            Task { @MainActor in
+                lastKey.wrappedValue = controlKey.rawValue
             }
             return true
         }

@@ -1,11 +1,12 @@
 /* rmkey-qt-inject — LD_PRELOAD text injector for xochitl/Qt6.
  *
  * Listens on TCP 127.0.0.1:31338, reads framed protocol messages from
- * persistent connections, and commits received text/control-key events
- * to the current Qt focus object using synthetic QKeyEvent.
+ * persistent connections, and commits received text/control-key/editing
+ * events to the current Qt focus object using synthetic QKeyEvent.
  *
  * Frame format (per message):
- *   uint8  type    — 0x01 = TEXT_UTF8, 0x02 = CONTROL_KEY
+ *   uint8  type    — 0x01 = TEXT_UTF8, 0x02 = CONTROL_KEY,
+ *                    0x03 = EDITING_COMMAND
  *   uint32 length  — payload length, little-endian
  *   bytes[] payload — length bytes
  *
@@ -61,7 +62,17 @@ static constexpr size_t  MAX_FRAME_SIZE       = 1024 * 1024;
 static constexpr size_t  HEADER_SIZE          = 5;   /* 1 + 4 */
 static constexpr uint8_t TYPE_TEXT_UTF8       = 0x01;
 static constexpr uint8_t TYPE_CONTROL_KEY     = 0x02;
+static constexpr uint8_t TYPE_EDITING_COMMAND = 0x03;
+static constexpr size_t  MAX_COMMAND_LEN      = 32;
 static const char       *LOG_PATH             = "/tmp/rmkey-qt-inject.log";
+
+/* ── weak qt_handleKeyEvent declaration ────────────────────────────── */
+
+QT_BEGIN_NAMESPACE
+Q_GUI_EXPORT void qt_handleKeyEvent(
+    QWindow *, QEvent::Type, int, Qt::KeyboardModifiers,
+    const QString &, bool, ushort) __attribute__((weak));
+QT_END_NAMESPACE
 
 /* ── file logging ──────────────────────────────────────────────────── */
 
@@ -195,6 +206,95 @@ static ssize_t read_exact(int fd, void *buf, size_t count) {
     return static_cast<ssize_t>(total);
 }
 
+
+/* ── editing-command name → (Qt::Key, Qt::KeyboardModifiers) ───────── */
+
+static bool map_editing_command(const char *name, int len,
+                                Qt::Key *outKey,
+                                Qt::KeyboardModifiers *outMods) {
+    if (len > static_cast<int>(MAX_COMMAND_LEN)) {
+        file_log("editing command payload exceeds 32 bytes");
+        return false;
+    }
+
+    struct Entry {
+        const char *name;
+        int         len;
+        Qt::Key     key;
+        Qt::KeyboardModifiers mods;
+    };
+
+    static const Entry table[] = {
+        {"COPY",        4,  Qt::Key_C,     Qt::ControlModifier},
+        {"PASTE",       5,  Qt::Key_V,     Qt::ControlModifier},
+        {"CUT",         3,  Qt::Key_X,     Qt::ControlModifier},
+        {"SELECT_ALL",  10, Qt::Key_A,     Qt::ControlModifier},
+        {"UNDO",        4,  Qt::Key_Z,     Qt::ControlModifier},
+        {"SHIFT_LEFT",  10, Qt::Key_Left,  Qt::ShiftModifier},
+        {"SHIFT_RIGHT", 11, Qt::Key_Right, Qt::ShiftModifier},
+        {"SHIFT_UP",    8,  Qt::Key_Up,    Qt::ShiftModifier},
+        {"SHIFT_DOWN",  10, Qt::Key_Down,  Qt::ShiftModifier},
+        {"SHIFT_HOME",  10, Qt::Key_Home,  Qt::ShiftModifier},
+        {"SHIFT_END",   9,  Qt::Key_End,   Qt::ShiftModifier},
+    };
+
+    for (const auto &entry : table) {
+        if (len == entry.len && strncmp(name, entry.name, static_cast<size_t>(len)) == 0) {
+            *outKey  = entry.key;
+            *outMods = entry.mods;
+            return true;
+        }
+    }
+
+    {
+        char msg[160];
+        snprintf(msg, sizeof(msg), "unknown editing command: %.*s",
+                 len, name);
+        file_log(msg);
+    }
+    return false;
+}
+
+/* ── dispatch editing-command frame on Qt main thread ──────────────── */
+
+static void commit_editing_on_qt_thread(Qt::Key key,
+                                        Qt::KeyboardModifiers mods) {
+    if (!qt_handleKeyEvent) {
+        file_log("qt_handleKeyEvent not available in this Qt runtime");
+        qWarning() << "rmkey-qt-inject: qt_handleKeyEvent unavailable"
+                     << "— editing commands disabled";
+        return;
+    }
+
+    QWindow *window = QGuiApplication::focusWindow();
+    if (!window) {
+        file_log("no focus window, dropping editing command");
+        qWarning() << "rmkey-qt-inject: no focus window";
+        return;
+    }
+
+    qt_handleKeyEvent(window, QEvent::KeyPress, static_cast<int>(key),
+                      mods, QString(), false, 1);
+    qt_handleKeyEvent(window, QEvent::KeyRelease, static_cast<int>(key),
+                      mods, QString(), false, 1);
+}
+
+static void queue_commit_editing(Qt::Key key,
+                                 Qt::KeyboardModifiers mods) {
+    QCoreApplication *app = QCoreApplication::instance();
+    if (!app) {
+        qWarning() << "rmkey-qt-inject: cannot queue editing; no app yet";
+        return;
+    }
+    QPointer<QCoreApplication> app_ptr(app);
+    QMetaObject::invokeMethod(app,
+        [app_ptr, key, mods]() {
+            if (!app_ptr) return;
+            commit_editing_on_qt_thread(key, mods);
+        },
+        Qt::QueuedConnection);
+}
+
 /* ── per-connection handler (runs in a detached client thread) ──────── */
 
 static void handle_client(int client_fd) {
@@ -276,6 +376,17 @@ static void handle_client(int client_fd) {
                          "unknown control key: ");
                 file_log(msg);
                 file_log(payload.constData());
+            }
+            break;
+        }
+        case TYPE_EDITING_COMMAND: {
+            Qt::Key key;
+            Qt::KeyboardModifiers mods;
+            if (map_editing_command(payload.constData(),
+                                    static_cast<int>(length),
+                                    &key, &mods)) {
+                file_log("dispatching EDITING_COMMAND frame");
+                queue_commit_editing(key, mods);
             }
             break;
         }

@@ -50,6 +50,7 @@ actor SSHActor {
 
     var isConnected: Bool { session != nil }
     var isInjectorReady: Bool { injectorChannel != nil }
+    var editingCommandsAvailable = false
 
     // MARK: - Connection lifecycle
 
@@ -121,6 +122,7 @@ actor SSHActor {
     }
 
     func disconnect() {
+        editingCommandsAvailable = false
         if let ch = injectorChannel {
             libssh2_channel_free(ch)
             injectorChannel = nil
@@ -151,7 +153,12 @@ actor SSHActor {
         ) else {
             throw SSHActorError.channelFailed(lastError(session: session))
         }
-        self.injectorChannel = channel
+
+        // The injector channel is ready once the TCP connection opens. Do not
+        // require an application-level handshake here: it made a working
+        // injector unavailable when acknowledgement timing or versions varied.
+        editingCommandsAvailable = true
+        injectorChannel = channel
     }
 
     func closeInjectorChannel() {
@@ -159,6 +166,7 @@ actor SSHActor {
             libssh2_channel_free(ch)
             injectorChannel = nil
         }
+        editingCommandsAvailable = false
     }
 
     func sendFrame(_ data: Data) async throws {
@@ -166,15 +174,16 @@ actor SSHActor {
             throw SSHActorError.noInjectorChannel
         }
 
-        let sent = data.withUnsafeBytes { ptr in
-            libssh2_channel_write_ex(
-                channel, 0,
-                ptr.baseAddress?.assumingMemoryBound(to: CChar.self),
-                data.count
-            )
-        }
-        guard sent == data.count else {
-            throw SSHActorError.channelFailed("Short write: \(sent)/\(data.count)")
+        try data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
+            guard let base = ptr.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                throw SSHActorError.channelFailed("Null buffer pointer")
+            }
+            var written = 0
+            while written < data.count {
+                let rc = libssh2_channel_write_ex(channel, 0, base.advanced(by: written), data.count - written)
+                if rc < 0 { throw SSHActorError.channelFailed("Frame write failed: \(rc)") }
+                written += rc
+            }
         }
     }
 
@@ -289,6 +298,7 @@ actor SSHActor {
     }
 
     private func cleanupConnection() {
+        editingCommandsAvailable = false
         if let ch = injectorChannel {
             libssh2_channel_free(ch)
             injectorChannel = nil

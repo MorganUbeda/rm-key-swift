@@ -86,8 +86,8 @@ struct Deployer {
 
         while Date() < deadline {
             do {
-                // Try opening a direct-tcpip channel to the injector
-                // If it succeeds, the port is ready
+                // A successful direct-tcpip connection means the injector is
+                // listening and ready to accept normal protocol frames.
                 try await actor.openInjectorChannel()
                 await actor.closeInjectorChannel()
                 return true

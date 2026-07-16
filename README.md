@@ -144,6 +144,22 @@ Escape
 Home / End
 ```
 
+Editing shortcuts (tablet clipboard):
+
+```text
+⌘C   Copy
+⌘V   Paste
+⌘X   Cut
+⌘A   Select All
+⌘Z   Undo
+⇧←  Shift-select left
+⇧→  Shift-select right
+⇧↑  Shift-select up
+⇧↓  Shift-select down
+⌘⇧←  Shift-select to start of line
+⌘⇧→  Shift-select to end of line
+```
+
 Text to sanity-check Unicode input:
 
 ```text

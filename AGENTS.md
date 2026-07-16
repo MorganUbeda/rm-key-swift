@@ -88,7 +88,7 @@ chore(deps): update libssh2 integration
 
 ## Building & Running
 
-Everything should be built and run in the current directory. In particular, the nix-cache should be local when building the Qt injector.
+Everything should be built and run in the current directory. In particular, the nix-cache should be local when building the Qt injector, and the swift sandbox has to be disabled.
 
 ```bash
 # Build the Qt injector (tablet side, cross-compiled for aarch64)
@@ -99,8 +99,7 @@ XDG_CACHE_HOME="$PWD/.nix-cache" nix-build build-injector.nix
 cp result/librmkey_qt_inject.so Sources/RMKeyApp/Resources/
 
 # Build the Swift client
-swift build -c release
-# binary: .build/release/RMKeyApp
+swift build --disable-sandbox
 
 # Run directly
 swift run -c release

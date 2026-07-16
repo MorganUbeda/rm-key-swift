@@ -13,9 +13,8 @@ The design has passed the two risky implementation spikes:
 - **Navigation flags:** Shift arrow events may include `.function` or
   `.numericPad`; those flags must not be treated as extra modifiers.
 
-The current Swift implementation is still a probe: it displays detected editing
-commands in the HUD but does not send type `0x03` frames yet. The remaining work
-is production protocol wiring, ordered transmission, and final acceptance tests.
+The production implementation sends editing-command frames through the ordered
+sender. Manual acceptance testing on the Paper Pro passed.
 
 ## Scope
 
@@ -53,12 +52,8 @@ Frames use the existing format:
 | `0x01` | Text | UTF-8 text |
 | `0x02` | Control key | Existing ASCII key name |
 | `0x03` | Editing command | Exact ASCII command name |
-| `0x04` | Hello | `RMKEY/1` |
-| `0x05` | Hello acknowledgement | `RMKEY/1 EDITING_COMMANDS` |
 
-The client sends Hello after opening the injector channel and enables editing
-commands only after receiving the expected acknowledgement. This prevents an
-old injector from appearing compatible while silently ignoring new frames.
+A successful direct-tcpip channel open indicates that the injector is ready.
 
 Editing command payloads are limited to 32 bytes. Unknown commands are logged
 and ignored. Editing commands do not require per-command acknowledgements.
@@ -152,7 +147,7 @@ insertion and virtual-keyboard activation.
 
 ### `Sources/RMKeyApp/Core/FramedProtocol.swift`
 
-- Add frame types `0x03`–`0x05`.
+- Add frame type `0x03`.
 - Add `EditingCommand` encoders.
 - Add exact-byte protocol tests.
 
@@ -169,15 +164,13 @@ insertion and virtual-keyboard activation.
 ### `Sources/RMKeyApp/Core/SSHActor.swift`
 
 - Implement complete channel writes.
-- Perform and validate the Hello exchange.
 - Serialize outgoing frames in capture order.
 - Invalidate the injector channel on protocol failure.
 
 ### `daemon/rmkey-qt-inject.cpp`
 
-- Add frame types `0x03`–`0x05`.
+- Add frame type `0x03`.
 - Parse and validate editing commands.
-- Implement Hello acknowledgement.
 - Dispatch editing commands through `qt_handleKeyEvent` on the Qt main thread.
 - Preserve the concurrent-client listener.
 
@@ -207,7 +200,7 @@ In xochitl text-edit mode:
 3. Verify cut, select all, and undo.
 4. Verify no duplicate text or commands.
 5. Verify the virtual keyboard does not open.
-6. Reconnect and restart xochitl; verify Hello is required again.
+6. Reconnect and restart xochitl; verify editing still works.
 
 ## Explicit non-goals
 

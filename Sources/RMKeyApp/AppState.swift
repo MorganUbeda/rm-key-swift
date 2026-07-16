@@ -15,6 +15,10 @@ final class AppState {
     var lastTypedKey: String = ""
     var captureWindowOpen = false
 
+    var editingCommandsAvailable: Bool {
+        get async { await sshActor.editingCommandsAvailable }
+    }
+
     var ipAddress: String
     var password: String
 

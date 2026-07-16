@@ -1,23 +1,7 @@
 import AppKit
 
-/// Semantic editing commands produced by the Capture HUD.
-///
-/// This is currently used by the Capture HUD probe. The eventual handler will
-/// encode these values as type-0x03 protocol frames.
-enum EditingCommand: String, CaseIterable {
-    case copy = "COPY"
-    case paste = "PASTE"
-    case cut = "CUT"
-    case selectAll = "SELECT_ALL"
-    case undo = "UNDO"
-    case shiftLeft = "SHIFT_LEFT"
-    case shiftRight = "SHIFT_RIGHT"
-    case shiftUp = "SHIFT_UP"
-    case shiftDown = "SHIFT_DOWN"
-    case shiftHome = "SHIFT_HOME"
-    case shiftEnd = "SHIFT_END"
-
-    /// Map a key-down event using the same shortcuts the feature will expose.
+extension EditingCommand {
+    /// Map a key-down event to an editing command for production sending.
     /// Arrow/navigation keys use hardware key codes; letter shortcuts use the
     /// characters AppKit reports with modifiers removed.
     static func command(for event: NSEvent) -> EditingCommand? {

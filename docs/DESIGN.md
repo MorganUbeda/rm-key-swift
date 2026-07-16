@@ -129,7 +129,7 @@ Frame format:
 
 | Offset | Size | Field | Description |
 |--------|------|-------|-------------|
-| 0 | 1 byte | type | `0x01` text, `0x02` control key, `0x03` editing command, `0x04` hello, `0x05` hello acknowledgement |
+| 0 | 1 byte | type | `0x01` text, `0x02` control key, `0x03` editing command |
 | 1–4 | 4 bytes | length | Payload length, little-endian unsigned integer |
 | 5.. | length bytes | payload | UTF-8 text or ASCII control key name |
 
@@ -172,8 +172,7 @@ Control keys are sent as Qt key press/release events with empty text.
 The payload is one exact ASCII command name such as `COPY`, `PASTE`, or
 `SHIFT_LEFT`. The injector maps the command to a Qt key/modifier pair and
 calls `qt_handleKeyEvent(focusWindow(), ...)` so Qt shortcut processing is
-preserved. The extension also defines `0x04` Hello and `0x05` Hello
-acknowledgement. See `FEATURE_DESIGN.md` for the complete command mapping.
+preserved. See `FEATURE_DESIGN.md` for the complete command mapping.
 
 ---
 
