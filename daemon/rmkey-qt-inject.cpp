@@ -195,7 +195,7 @@ static ssize_t read_exact(int fd, void *buf, size_t count) {
     return static_cast<ssize_t>(total);
 }
 
-/* ── per-connection handler (runs in server thread) ────────────────── */
+/* ── per-connection handler (runs in a detached client thread) ──────── */
 
 static void handle_client(int client_fd) {
     file_log("client connected");
@@ -353,7 +353,26 @@ static void *server_thread_main(void *) {
             qWarning() << "rmkey-qt-inject: accept failed" << strerror(errno);
             continue;
         }
-        handle_client(client_fd);
+
+        /* Keep the persistent rm-key channel from blocking diagnostics or a
+         * later reconnect. Qt work is still serialized by the queued
+         * callbacks in the client handler.
+         */
+        pthread_t client_thread;
+        const int err = pthread_create(
+            &client_thread, nullptr,
+            [](void *arg) -> void * {
+                const int fd = static_cast<int>(reinterpret_cast<intptr_t>(arg));
+                handle_client(fd);
+                return nullptr;
+            },
+            reinterpret_cast<void *>(static_cast<intptr_t>(client_fd)));
+        if (err != 0) {
+            file_log("pthread_create failed for client");
+            close(client_fd);
+            continue;
+        }
+        pthread_detach(client_thread);
     }
 
     return nullptr;
