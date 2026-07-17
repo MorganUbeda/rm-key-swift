@@ -43,16 +43,15 @@ The text injection and basic shortcuts are all implemented and working.
 
 Targeted setup:
 
-- reMarkable Paper Pro
+- reMarkable Paper Pro with developer mode enabled
 - macOS 14+
 - Swift 5.9+
-- USB SSH at `10.11.99.1`
 
 This project is **not currently intended for reMarkable 1 or reMarkable 2**. It depends on Paper Pro Developer Mode and the Paper Pro `xochitl`/Qt runtime.
 
 Firmware updates may break the injector. If that happens, please open an issue with your tablet OS version and logs.
 
-## Requirements
+## Requirements for building the tool
 
 ### Mac
 
@@ -117,7 +116,7 @@ The app appears as a keyboard icon in the macOS menu bar.
 2. Connect the tablet by USB (or connect to the same wifi network if SSH over wifi is enabled).
 3. Launch `rm-key`.
 4. Open **Settings...** from the menu-bar icon.
-5. Enter the tablet IP (usually `10.11.99.1` over USB — see the [Developer Mode docs](https://developer.remarkable.com/documentation/developer-mode) for the correct address) and root password.
+5. Enter the tablet IP (usually `10.11.99.1` over USB, see the [Developer Mode docs](https://developer.remarkable.com/documentation/developer-mode) for the correct address) and root password.
 6. Click **Upload Daemon**.
    - This uploads `/tmp/librmkey_qt_inject.so`.
    - It installs a temporary systemd drop-in for `xochitl.service`.
@@ -155,31 +154,15 @@ Editing shortcuts (tablet clipboard):
 ⌘⇧→  Shift-select to end of line
 ```
 
-Text to sanity-check Unicode input:
-
-```text
-hello world
-é è ê ë ñ ç ö ü
-Café déjà vu naïve façade
-```
-
-Expected behavior:
-
-- text appears once in the focused tablet text object
-- accented characters appear correctly
-- the virtual keyboard does not open
-- a tablet reboot removes the temporary injector
-
 ## Privacy
 
 `rm-key` does not use cloud services, analytics, telemetry, or third-party servers. It connects directly from your Mac to your tablet over SSH.
 
-Stored credentials:
+Credentials are stored locally in the macOS keychain:
 
 - Service: `rm-key`
 - Username: `root`
 - Tablet IP: stored as `ip`
-- Storage: macOS Keychain
 
 To remove saved credentials manually:
 
@@ -199,13 +182,13 @@ Run **Upload Daemon** again. The injector only listens after `xochitl` has resta
 Check that:
 
 - Developer Mode is enabled.
-- The tablet is connected by USB.
-- `ssh root@10.11.99.1` works in Terminal.
+- The tablet is connected by USB or on the same wifi network, and the IP address is properly configured on the app settings
+- `ssh root@<ip-address>` works in Terminal.
 - `Sources/RMKeyApp/Resources/librmkey_qt_inject.so` exists.
 
 ### xochitl does not start
 
-The drop-in is temporary, but you can remove it manually over SSH:
+The drop-in is temporary and should disappear after restarting the tablet, but you can remove it manually over SSH:
 
 ```sh
 rm -f /run/systemd/system/xochitl.service.d/rm-key.conf
@@ -238,15 +221,10 @@ docs/DESIGN.md             architecture notes
 - Swift system libraries (libssh2) are linked via SwiftPM targets.
 - The SSH client currently uses `libssh2` via a small SwiftPM system-library target.
 - The injector is C++ and is cross-compiled to aarch64 Linux with Nix.
-- Format Swift code before submitting changes:
-
-```sh
-swift-format --in-place --recursive Sources/
-```
 
 ## Status
 
-This is a weekend project built to solve a specific personal workflow. Contributions and bug reports are welcome, but support is best-effort.
+This is a weekend project built to solve a specific personal workflow. Contributions and bug reports are welcome, but support is best-effort. The whole thing is 99.9\% vibe-coded.
 
 ## License
 
